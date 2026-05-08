@@ -42,7 +42,7 @@ const scheduleCommands = [
     .addChannelOption(opt =>
       opt.setName('알림채널')
         .setDescription('알림을 보낼 채널')
-        .addChannelTypes(ChannelType.GuildText)
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
         .setRequired(true)
     )
     .addStringOption(opt =>

@@ -1,6 +1,8 @@
 'use strict';
 
-const https = require('https');
+const fs   = require('fs');
+const path = require('path');
+const os   = require('os');
 const {
   joinVoiceChannel,
   createAudioPlayer,
@@ -9,7 +11,6 @@ const {
   VoiceConnectionStatus,
   entersState,
   getVoiceConnection,
-  StreamType,
 } = require('@discordjs/voice');
 const googleTTS = require('google-tts-api');
 
@@ -34,34 +35,41 @@ async function playTTSInChannel(voiceChannel, text) {
   }
 
   await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
+  console.log('[TTS] 음성 채널 연결 완료');
 
-  const url = googleTTS.getAudioUrl(text, { lang: 'ko', slow: false });
-  const stream = await fetchAudioStream(url);
-  const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
+  // MP3를 임시 파일로 저장
+  const base64Audio = await googleTTS.getAudioBase64(text, { lang: 'ko', slow: false });
+  const buffer      = Buffer.from(base64Audio, 'base64');
+  const tmpFile     = path.join(os.tmpdir(), `tts_${Date.now()}.mp3`);
+  fs.writeFileSync(tmpFile, buffer);
+  console.log('[TTS] 오디오 파일 준비 완료:', buffer.length, 'bytes');
 
-  const player = createAudioPlayer();
-  connection.subscribe(player);
-  player.play(resource);
+  try {
+    const resource = createAudioResource(tmpFile);
+    const player   = createAudioPlayer();
 
-  await entersState(player, AudioPlayerStatus.Idle, 60_000);
-  connection.destroy();
-}
+    player.on('error', (err) => {
+      console.error('[TTS] 플레이어 오류:', err.message);
+    });
 
-/**
- * TTS URL에서 오디오 스트림 취득
- * @param {string} url
- * @returns {Promise<import('http').IncomingMessage>}
- */
-function fetchAudioStream(url) {
-  return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
-      if (res.statusCode !== 200) {
-        reject(new Error(`TTS 스트림 취득 실패: HTTP ${res.statusCode}`));
-        return;
-      }
-      resolve(res);
-    }).on('error', reject);
-  });
+    player.on('stateChange', (oldState, newState) => {
+      console.log(`[TTS] 상태 변화: ${oldState.status} → ${newState.status}`);
+    });
+
+    connection.subscribe(player);
+    player.play(resource);
+
+    // Idle 또는 AutoPaused(구독자 없을 때) 중 먼저 오는 것으로 완료 처리
+    await Promise.race([
+      entersState(player, AudioPlayerStatus.Idle,       60_000),
+      entersState(player, AudioPlayerStatus.AutoPaused, 60_000),
+    ]);
+
+    console.log('[TTS] 재생 완료');
+  } finally {
+    fs.unlink(tmpFile, () => {});
+    connection.destroy();
+  }
 }
 
 module.exports = { playTTSInChannel };
