@@ -6,13 +6,6 @@ const { parseISO, isValid } = require('date-fns');
 const KST = 'Asia/Seoul';
 
 /**
- * 현재 KST 시각의 Date 객체 반환
- */
-function nowKST() {
-  return toZonedTime(new Date(), KST);
-}
-
-/**
  * 날짜 문자열(YYYY-MM-DD)과 시간 문자열(HH:mm)을 받아
  * KST 기준 UTC Date 객체로 변환합니다.
  *
@@ -48,24 +41,6 @@ function formatKST(dateInput, fmt = 'yyyy-MM-dd HH:mm') {
 }
 
 /**
- * DB에 저장할 ISO 문자열 반환 (UTC 기준)
- * @param {Date} date
- * @returns {string}
- */
-function toISOString(date) {
-  return date.toISOString();
-}
-
-/**
- * DB에 저장된 ISO 문자열을 Date로 변환
- * @param {string} isoStr
- * @returns {Date}
- */
-function fromISOString(isoStr) {
-  return new Date(isoStr);
-}
-
-/**
  * 오늘 KST 날짜 범위 (시작/끝 UTC ISO 문자열) 반환
  * @returns {{ start: string, end: string }}
  */
@@ -98,11 +73,8 @@ function isValidTime(str) {
 }
 
 module.exports = {
-  nowKST,
   parseKST,
   formatKST,
-  toISOString,
-  fromISOString,
   todayKSTRange,
   isValidDate,
   isValidTime,
