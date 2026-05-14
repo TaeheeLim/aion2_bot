@@ -6,6 +6,7 @@ const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { initDatabase } = require('./database');
 const { handleBuildInteraction }    = require('./commands/build');
 const { handleScheduleInteraction } = require('./commands/schedule');
+const { handleTtsInteraction }      = require('./commands/tts');
 const { startScheduleChecker }      = require('./services/scheduleChecker');
 
 // ──────────────────────────────────────────────────────────
@@ -28,6 +29,7 @@ initDatabase();
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildVoiceStates,
   ],
@@ -61,6 +63,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // 일정 관련 명령어
     const handledBySchedule = await handleScheduleInteraction(interaction);
     if (handledBySchedule) return;
+
+    // TTS 관련 명령어 (디버그/테스트)
+    const handledByTts = await handleTtsInteraction(interaction);
+    if (handledByTts) return;
 
     // 알 수 없는 명령어
     await interaction.reply({

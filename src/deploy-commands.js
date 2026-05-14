@@ -14,6 +14,7 @@ require('dotenv').config();
 const { REST, Routes } = require('discord.js');
 const { buildCommands }    = require('./commands/build');
 const { scheduleCommands } = require('./commands/schedule');
+const { ttsCommands }      = require('./commands/tts');
 
 const { DISCORD_TOKEN, CLIENT_ID, GUILD_ID } = process.env;
 
@@ -27,6 +28,7 @@ if (!DISCORD_TOKEN || !CLIENT_ID) {
 const commands = [
   ...buildCommands,
   ...scheduleCommands,
+  ...ttsCommands,
 ].map(cmd => cmd.toJSON());
 
 const rest = new REST().setToken(DISCORD_TOKEN);

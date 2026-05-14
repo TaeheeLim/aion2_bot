@@ -117,9 +117,14 @@ async function handleScheduleRegister(interaction) {
   const guildId = interaction.guildId;
   const userId  = interaction.user.id;
 
-  const title        = interaction.options.getString('제목').trim();
-  const dateStr      = interaction.options.getString('날짜').trim();
-  const timeStr      = interaction.options.getString('시간').trim();
+  const title   = interaction.options.getString('제목').trim();
+  const rawDate = interaction.options.getString('날짜').trim();
+  const timeStr = interaction.options.getString('시간').trim();
+
+  // '오늘' 입력 시 KST 기준 오늘 날짜로 자동 변환
+  const dateStr = (rawDate === '오늘')
+    ? formatKST(new Date(), 'yyyy-MM-dd')
+    : rawDate;
   const channel      = interaction.options.getChannel('알림채널');
   const desc         = interaction.options.getString('설명')    ?? '';
   const role         = interaction.options.getRole('멘션역할');

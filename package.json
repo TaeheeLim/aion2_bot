@@ -10,7 +10,9 @@
     "dev": "node --watch src/index.js"
   },
   "dependencies": {
+    "@discordjs/opus": "^0.10.0",
     "@discordjs/voice": "^0.19.2",
+    "@noble/ciphers": "^2.2.0",
     "better-sqlite3": "^12.9.0",
     "date-fns": "^3.6.0",
     "date-fns-tz": "^3.1.3",
