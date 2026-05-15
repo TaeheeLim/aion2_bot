@@ -333,7 +333,18 @@ async function handleEnhance(interaction) {
   }
 
   // 응답 임베드
-  const isRune = item.item_type === '전념의룬';
+  const isRune       = item.item_type === '전념의룬';
+  const targetLevel  = item.enhance_level + 1;       // 시도 목표
+  const beforeStreak = item.enhance_fail_streak;     // 이번 시도 직전의 누적 보정 횟수
+  const boostBefore  = beforeStreak * failBoost;
+  const resultLine   = success
+    ? `✅ 성공 — **${targetLevel}강** 달성`
+    : (isRune ? `💀 실패 — 장비 파괴 (${item.enhance_level}강에서 파괴됨)`
+              : `❌ 실패 — **${item.enhance_level}강** 유지`);
+  const probLine = failBoost > 0
+    ? `기본 ${step.prob}% + 보정 +${boostBefore.toFixed(2)}%p = **${effectiveProb.toFixed(2)}%**`
+    : `**${effectiveProb.toFixed(2)}%**`;
+
   const embed = new EmbedBuilder()
     .setColor(success ? 0x00b894 : 0xd63031)
     .setTitle(success
@@ -341,19 +352,20 @@ async function handleEnhance(interaction) {
       : (isRune ? `💥 강화 실패 — 장비 파괴 [${item.item_type}] ${item.item_name}`
                 : `❌ 강화 실패 [${item.item_type}] ${item.item_name}`))
     .addFields(
-      { name: '🆔 장비',         value: `#${item.id}`,                                  inline: true },
-      { name: '⚒️ 강화 등급',   value: `${item.enhance_level} → **${newLevel}**`,      inline: true },
-      { name: '🎯 적용 확률',    value: `${effectiveProb.toFixed(2)}%`,                  inline: true },
-      { name: '💰 이번 사용 키나', value: `${formatNumber(step.kinah)}`,                inline: true },
-      { name: '💎 이번 사용 강화석', value: `${formatNumber(step.stones)} 개`,          inline: true },
+      { name: '🆔 장비',          value: `#${item.id}`,                                      inline: true },
+      { name: '⚒️ 시도',         value: `**${item.enhance_level}강 → ${targetLevel}강**`,    inline: true },
+      { name: '🔮 결과',          value: resultLine,                                          inline: true },
+      { name: '🎯 적용 확률',     value: probLine,                                            inline: true },
+      { name: '💰 사용 키나',     value: formatNumber(step.kinah),                            inline: true },
+      { name: '💎 사용 강화석',   value: `${formatNumber(step.stones)} 개`,                  inline: true },
     );
 
-  if (!success && !isRune) {
-    embed.addFields({
-      name: '📈 누적 보정',
-      value: `실패 ${newFailStreak}회 → 다음 시도 시 +${(failBoost * newFailStreak).toFixed(2)}%p`,
-      inline: false,
-    });
+  // 누적 보정 상태 (영웅만)
+  if (!isRune) {
+    const boostStatus = success
+      ? `✅ 성공으로 리셋 (이전 ${beforeStreak}회 → **0회**)`
+      : `실패 누적 **${newFailStreak}회** → 다음 시도 보정 +${(failBoost * newFailStreak).toFixed(2)}%p`;
+    embed.addFields({ name: '📈 누적 보정', value: boostStatus, inline: false });
   }
   if (newDestroyed) {
     embed.addFields({ name: '💀 상태', value: '장비가 파괴되어 더 이상 사용할 수 없습니다.', inline: false });
@@ -431,26 +443,35 @@ async function handleBreakthrough(interaction) {
     return interaction.editReply({ content: '❌ 돌파 처리 중 오류가 발생했습니다.' });
   }
 
+  const targetLevel  = item.breakthrough_level + 1;
+  const beforeStreak = item.breakthrough_fail_streak;
+  const boostBefore  = beforeStreak * failBoost;
+  const resultLine = success
+    ? `✅ 성공 — **돌파 ${targetLevel}** 달성`
+    : `❌ 실패 — **돌파 ${item.breakthrough_level}** 유지`;
+  const probLine = failBoost > 0
+    ? `기본 ${step.prob}% + 보정 +${boostBefore.toFixed(2)}%p = **${effectiveProb.toFixed(2)}%**`
+    : `**${effectiveProb.toFixed(2)}%**`;
+
   const embed = new EmbedBuilder()
     .setColor(success ? 0xfdcb6e : 0xd63031)
     .setTitle(success
       ? `🌟 돌파 성공! [영웅] ${item.item_name}`
       : `❌ 돌파 실패 [영웅] ${item.item_name}`)
     .addFields(
-      { name: '🆔 장비',          value: `#${item.id}`,                                inline: true },
-      { name: '💥 돌파 등급',     value: `${item.breakthrough_level} → **${newLevel}**`, inline: true },
-      { name: '🎯 적용 확률',     value: `${effectiveProb.toFixed(2)}%`,                inline: true },
-      { name: '💰 이번 사용 키나',   value: `${formatNumber(step.kinah)}`,            inline: true },
-      { name: '💎 이번 사용 돌파석', value: `${formatNumber(step.stones)} 개`,        inline: true },
+      { name: '🆔 장비',         value: `#${item.id}`,                                                  inline: true },
+      { name: '💥 시도',         value: `**돌파 ${item.breakthrough_level} → ${targetLevel}**`,         inline: true },
+      { name: '🔮 결과',         value: resultLine,                                                      inline: true },
+      { name: '🎯 적용 확률',    value: probLine,                                                        inline: true },
+      { name: '💰 사용 키나',    value: formatNumber(step.kinah),                                        inline: true },
+      { name: '💎 사용 돌파석',  value: `${formatNumber(step.stones)} 개`,                              inline: true },
     );
 
-  if (!success) {
-    embed.addFields({
-      name: '📈 누적 보정',
-      value: `실패 ${newFailStreak}회 → 다음 시도 시 +${(failBoost * newFailStreak).toFixed(2)}%p`,
-      inline: false,
-    });
-  }
+  const boostStatus = success
+    ? `✅ 성공으로 리셋 (이전 ${beforeStreak}회 → **0회**)`
+    : `실패 누적 **${newFailStreak}회** → 다음 시도 보정 +${(failBoost * newFailStreak).toFixed(2)}%p`;
+  embed.addFields({ name: '📈 누적 보정', value: boostStatus, inline: false });
+
   if (success && newLevel >= MAX_HERO_BREAKTHROUGH) {
     embed.addFields({ name: '🎊 만렙 도달!', value: '돌파 5 완성! 축하합니다!', inline: false });
   }
