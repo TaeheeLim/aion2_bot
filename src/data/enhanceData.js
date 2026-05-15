@@ -45,12 +45,13 @@ const HERO_ENHANCE = [
 ];
 
 // 영웅 돌파: 목표 등급 1~5. 시작 등급 = 0.
+// fail_boost 는 %포인트 단위 (엑셀 raw 0.05 는 셀 포맷 0% 로 인해 5% 로 표시되는 값).
 const HERO_BREAKTHROUGH = [
-  { prob: 33,   fail_boost: 0.05, kinah: 600000,  stones: 6  },  // 등급 1 (0 → 1)
-  { prob: 25,   fail_boost: 0.04, kinah: 900000,  stones: 9  },  // 등급 2
-  { prob: 16.5, fail_boost: 0.03, kinah: 1400000, stones: 12 },  // 등급 3
-  { prob: 12.5, fail_boost: 0.02, kinah: 2000000, stones: 15 },  // 등급 4
-  { prob: 10,   fail_boost: 0.01, kinah: 3000000, stones: 20 },  // 등급 5 (4 → 5)
+  { prob: 33,   fail_boost: 5, kinah: 600000,  stones: 6  },  // 등급 1 (0 → 1)
+  { prob: 25,   fail_boost: 4, kinah: 900000,  stones: 9  },  // 등급 2
+  { prob: 16.5, fail_boost: 3, kinah: 1400000, stones: 12 },  // 등급 3
+  { prob: 12.5, fail_boost: 2, kinah: 2000000, stones: 15 },  // 등급 4
+  { prob: 10,   fail_boost: 1, kinah: 3000000, stones: 20 },  // 등급 5 (4 → 5)
 ];
 
 // 전념의룬 강화: 목표 등급 1~10. 0번째 row(등급 1)는 생성 단계용으로 룩업에서 사용하지 않음.
