@@ -12,9 +12,12 @@
 require('dotenv').config();
 
 const { REST, Routes } = require('discord.js');
-const { buildCommands }    = require('./commands/build');
-const { scheduleCommands } = require('./commands/schedule');
-const { ttsCommands }      = require('./commands/tts');
+const { buildCommands }     = require('./commands/build');
+const { scheduleCommands }  = require('./commands/schedule');
+const { ttsCommands }       = require('./commands/tts');
+const { diceCommands }      = require('./commands/dice');
+const { calendarCommands }  = require('./commands/calendar');
+const { inventoryCommands } = require('./commands/inventory');
 
 const { DISCORD_TOKEN, CLIENT_ID, GUILD_ID } = process.env;
 
@@ -29,6 +32,9 @@ const commands = [
   ...buildCommands,
   ...scheduleCommands,
   ...ttsCommands,
+  ...diceCommands,
+  ...calendarCommands,
+  ...inventoryCommands,
 ].map(cmd => cmd.toJSON());
 
 const rest = new REST().setToken(DISCORD_TOKEN);

@@ -55,6 +55,47 @@ function todayKSTRange() {
 }
 
 /**
+ * 특정 (year, month) KST 월간 범위 반환.
+ * @param {number} year  - 4자리 연도
+ * @param {number} month - 1~12
+ * @returns {{ start: string, end: string }}
+ */
+function monthKSTRange(year, month) {
+  const mm = String(month).padStart(2, '0');
+  const startStr = `${year}-${mm}-01T00:00:00`;
+  // 다음달 1일 00:00 직전까지
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear  = month === 12 ? year + 1 : year;
+  const nm = String(nextMonth).padStart(2, '0');
+  const endStr = `${nextYear}-${nm}-01T00:00:00`;
+  return {
+    start: fromZonedTime(startStr, KST).toISOString(),
+    end:   fromZonedTime(endStr,   KST).toISOString(),
+  };
+}
+
+/**
+ * 현재 KST 기준 연/월 반환.
+ * @returns {{ year: number, month: number }}
+ */
+function currentKSTYearMonth() {
+  const now = toZonedTime(new Date(), KST);
+  return {
+    year:  Number(format(now, 'yyyy', { timeZone: KST })),
+    month: Number(format(now, 'M',    { timeZone: KST })),
+  };
+}
+
+/**
+ * UTC ISO 문자열에서 KST 기준 일자(1~31) 추출.
+ * @param {string} iso
+ * @returns {number}
+ */
+function kstDayOfMonth(iso) {
+  return Number(format(toZonedTime(new Date(iso), KST), 'd', { timeZone: KST }));
+}
+
+/**
  * YYYY-MM-DD 형식 유효성 검사
  * @param {string} str
  * @returns {boolean}
@@ -76,6 +117,9 @@ module.exports = {
   parseKST,
   formatKST,
   todayKSTRange,
+  monthKSTRange,
+  currentKSTYearMonth,
+  kstDayOfMonth,
   isValidDate,
   isValidTime,
 };

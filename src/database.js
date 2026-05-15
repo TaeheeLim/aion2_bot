@@ -65,6 +65,35 @@ function initDatabase() {
     )
   `);
 
+  // ──────────────────────────────────────────
+  // inventory 테이블 (아이온2 강화/돌파 시뮬레이션)
+  // item_type        : '영웅' | '전념의룬'
+  // enhance_level    : 강화 등급 (1~20 영웅, 1~10 전념의룬)
+  // breakthrough_lv  : 돌파 등급 (0~5 영웅, 전념의룬은 항상 0)
+  // *_fail_streak    : 실패 누적 보정 카운터 (영웅만 의미 있음)
+  // destroyed        : 0/1 — 1이면 더 이상 강화/돌파 불가
+  // ──────────────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS inventory (
+      id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+      guild_id                    TEXT    NOT NULL,
+      user_id                     TEXT    NOT NULL,
+      item_name                   TEXT    NOT NULL,
+      item_type                   TEXT    NOT NULL,
+      enhance_level               INTEGER NOT NULL DEFAULT 1,
+      breakthrough_level          INTEGER NOT NULL DEFAULT 0,
+      enhance_fail_streak         INTEGER NOT NULL DEFAULT 0,
+      breakthrough_fail_streak    INTEGER NOT NULL DEFAULT 0,
+      destroyed                   INTEGER NOT NULL DEFAULT 0,
+      destroyed_reason            TEXT,
+      total_kinah_used            INTEGER NOT NULL DEFAULT 0,
+      total_enhance_stones_used   INTEGER NOT NULL DEFAULT 0,
+      total_breakthrough_stones_used INTEGER NOT NULL DEFAULT 0,
+      created_at                  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at                  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+  `);
+
   // 기존 DB 호환 마이그레이션
   const migrations = [
     `ALTER TABLE schedules ADD COLUMN voice_channel_id TEXT`,

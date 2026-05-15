@@ -4,10 +4,13 @@ require('dotenv').config();
 
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { initDatabase } = require('./database');
-const { handleBuildInteraction }    = require('./commands/build');
-const { handleScheduleInteraction } = require('./commands/schedule');
-const { handleTtsInteraction }      = require('./commands/tts');
-const { startScheduleChecker }      = require('./services/scheduleChecker');
+const { handleBuildInteraction }     = require('./commands/build');
+const { handleScheduleInteraction }  = require('./commands/schedule');
+const { handleTtsInteraction }       = require('./commands/tts');
+const { handleDiceInteraction }      = require('./commands/dice');
+const { handleCalendarInteraction }  = require('./commands/calendar');
+const { handleInventoryInteraction } = require('./commands/inventory');
+const { startScheduleChecker }       = require('./services/scheduleChecker');
 
 // ──────────────────────────────────────────────────────────
 // 환경변수 검증
@@ -65,6 +68,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // TTS 관련 명령어 (디버그/테스트)
     const handledByTts = await handleTtsInteraction(interaction);
     if (handledByTts) return;
+
+    // 주사위
+    const handledByDice = await handleDiceInteraction(interaction);
+    if (handledByDice) return;
+
+    // 달력
+    const handledByCalendar = await handleCalendarInteraction(interaction);
+    if (handledByCalendar) return;
+
+    // 인벤토리 / 강화 / 돌파
+    const handledByInventory = await handleInventoryInteraction(interaction);
+    if (handledByInventory) return;
 
     // 알 수 없는 명령어
     await interaction.reply({
