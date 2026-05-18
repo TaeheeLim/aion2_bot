@@ -1,23 +1,29 @@
 # ──────────────────────────────────────────────────────────────
 # docker-compose.prod.yml — 서버용 (빌드 없이 이미지만 사용)
 #
-# 로컬에서 빌드한 이미지를 서버에 옮긴 뒤 이 파일로 실행한다.
-#   - docker save / docker load  (tar 전송 방식)
-#   - 또는 GHCR/Docker Hub 등 레지스트리에서 docker pull
+# 기본 설정: GHCR (GitHub Container Registry) 경유 배포
+#   로컬:  docker compose build
+#          docker tag aion-bot:latest ghcr.io/taeheelim/aion-bot:latest
+#          docker push ghcr.io/taeheelim/aion-bot:latest
+#   서버:  docker compose -f docker-compose.prod.yml pull
+#          docker compose -f docker-compose.prod.yml up -d
 #
-# 실행: docker compose -f docker-compose.prod.yml up -d
+# 만약 레지스트리 없이 tar-load 방식으로 배포한다면 아래 image / pull_policy 를
+# 주석에 표시된 대체값으로 바꾸세요.
 # ──────────────────────────────────────────────────────────────
 
 services:
   aion-bot:
-    # 로컬 빌드 시 'aion-bot:latest' 그대로, 레지스트리 사용 시 'ghcr.io/<user>/aion-bot:latest' 등으로 변경.
-    image: aion-bot:latest
+    # GHCR (기본). public 패키지면 별도 로그인 없이 서버에서 pull 가능.
+    image: ghcr.io/taeheelim/aion-bot:latest
+    # ↳ tar-load 방식으로 바꿀 때:  image: aion-bot:latest
 
     container_name: aion-bot
     restart: unless-stopped
 
-    # 절대 자동 pull 시도 안 함 (tar load 방식에서 에러 방지). 레지스트리 쓰면 'always' 또는 'missing' 으로.
-    pull_policy: never
+    # GHCR 사용 시 매 up/pull 마다 최신 이미지 받아오기.
+    pull_policy: always
+    # ↳ tar-load 방식으로 바꿀 때:  pull_policy: never
 
     env_file:
       - .env
