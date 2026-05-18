@@ -34,7 +34,10 @@ services:
       DB_PATH: /app/data/aion_bot.db
 
     volumes:
-      - ./data:/app/data
+      # Named volume (Docker 관리). 컨테이너 안의 node 사용자 권한 자동 상속 → chown 불필요.
+      # 백업: docker run --rm -v aion-bot_aion-data:/d -v $(pwd):/backup alpine \
+      #         tar czf /backup/aion-data-$(date +%F).tgz -C /d .
+      - aion-data:/app/data
 
     logging:
       driver: json-file
@@ -48,3 +51,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+volumes:
+  aion-data:
+    # Docker 가 관리. 호스트의 /var/lib/docker/volumes/aion-bot_aion-data/_data 등에 보관됨.
+    # 컨테이너 내부 /app/data 의 소유자(node:node)를 그대로 유지 → 권한 문제 없음.

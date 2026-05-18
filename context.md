@@ -296,7 +296,7 @@ cat > .env <<EOF
 DISCORD_TOKEN=...
 CLIENT_ID=...
 EOF
-mkdir -p data
+# named volume (aion-data) 는 docker compose 가 자동 생성, mkdir 불필요
 
 # 슬래시 명령어 등록 (최초 1회 + 명령어 정의 변경 시)
 docker compose run --rm aion-bot node src/deploy-commands.js
@@ -321,7 +321,7 @@ scp aion-bot.tar.gz docker-compose.prod.yml .env user@server:~/aion-bot/
 
 # 4) 서버에서 import + 기동
 ssh user@server
-cd ~/aion-bot && mkdir -p data
+cd ~/aion-bot && # named volume (aion-data) 는 docker compose 가 자동 생성, mkdir 불필요
 docker load < aion-bot.tar.gz
 # (최초 1회) 슬래시 명령어 등록
 docker compose -f docker-compose.prod.yml run --rm aion-bot node src/deploy-commands.js
@@ -345,7 +345,8 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 #### 공통 동작 사양
-- **DB 영속화**: 호스트의 `./data` ↔ 컨테이너 `/app/data` 마운트, 컨테이너 내 `DB_PATH=/app/data/aion_bot.db`. WAL 파일(`-shm`, `-wal`) 함께 보관.
+- **DB 영속화**: Docker named volume `aion-data` → 컨테이너 `/app/data` 마운트, 컨테이너 내 `DB_PATH=/app/data/aion_bot.db`. WAL 파일(`-shm`, `-wal`) 함께 보관. 권한은 컨테이너의 `node:node` 가 자동 상속 — 호스트 쪽에서 chown 신경 안 써도 됨.
+- **백업**: `docker run --rm -v aion-bot_aion-data:/d -v $(pwd):/backup alpine tar czf /backup/aion-data-$(date +%F).tgz -C /d .` 형식으로 tar 추출.
 - **타임존**: 컨테이너 `TZ=Asia/Seoul` 고정 (cron 알림과 KST 일치).
 - **로그 회전**: json-file 드라이버, 10MB × 5 파일.
 - **시그널 처리**: tini PID 1 → `docker stop` 시 SIGTERM 전달, 봇 깨끗하게 종료.

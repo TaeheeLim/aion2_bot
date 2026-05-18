@@ -16,9 +16,9 @@ services:
       TZ: Asia/Seoul
       DB_PATH: /app/data/aion_bot.db
 
-    # SQLite 파일(WAL 파일 포함) 영속화. 호스트의 ./data 에 보관.
+    # SQLite 파일(WAL 파일 포함) 영속화. Named volume → 컨테이너 권한 자동 상속.
     volumes:
-      - ./data:/app/data
+      - aion-data:/app/data
 
     # 컨테이너 로그 회전 (호스트 디스크 보호)
     logging:
@@ -36,3 +36,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+volumes:
+  aion-data:
