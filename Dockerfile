@@ -11,7 +11,7 @@
 # ──────────────────────────────────────────────────────────────
 
 # ---------- 1) builder: 의존성 설치 (네이티브 컴파일 포함) ----------
-FROM node:20-slim AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
@@ -22,11 +22,13 @@ RUN apt-get update \
 
 # package*.json 만 먼저 복사 → 캐시 최대화
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+# npm ci 는 lock 완벽 일치를 강요해 옵셔널 transitive deps(emnapi 등) 누락 시 실패한다.
+# npm install --omit=dev 는 lock 을 참고하면서도 부족분을 보완하므로 더 견고.
+RUN npm install --omit=dev --no-audit --no-fund
 
 
 # ---------- 2) runtime: 슬림 이미지 ----------
-FROM node:20-slim AS runtime
+FROM node:22-slim AS runtime
 
 WORKDIR /app
 
