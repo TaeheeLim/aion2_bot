@@ -282,6 +282,32 @@ playTTSInChannel(voiceChannel, text)
 ### 11.2 명령어 갱신
 - `src/commands/*.js` 의 `SlashCommandBuilder` 정의를 수정한 뒤 `npm run deploy` 재실행해야 클라이언트 UI에 반영됨. (런타임 핸들러 코드만 바꿨다면 deploy 불필요)
 
+### 11.2.1 Docker 배포
+
+```bash
+# 0) 호스트에 .env 작성 (DISCORD_TOKEN, CLIENT_ID, 선택 GUILD_ID)
+# 1) (최초 1회 또는 명령어 정의 변경 시) 슬래시 명령어 등록
+docker compose run --rm aion-bot node src/deploy-commands.js
+
+# 2) 봇 데몬 기동
+docker compose up -d
+
+# 3) 로그
+docker compose logs -f aion-bot
+
+# 4) 업데이트 후 재기동
+git pull
+docker compose build
+docker compose up -d
+```
+
+- **DB 영속화**: 호스트의 `./data` ↔ 컨테이너 `/app/data` 마운트, 컨테이너 내 `DB_PATH=/app/data/aion_bot.db`. WAL 파일(`-shm`, `-wal`) 함께 보관.
+- **타임존**: 컨테이너 `TZ=Asia/Seoul` 고정 (cron 알림과 KST 일치).
+- **로그 회전**: json-file 드라이버, 10MB × 5 파일.
+- **시그널 처리**: tini PID1 → `docker stop` 시 SIGTERM 전달, 봇 깨끗하게 종료.
+- **이미지 빌드**: multi-stage (Node 20-slim). better-sqlite3 / opus 네이티브 빌드는 builder 단계에서 처리, 런타임 이미지는 슬림.
+- **외부 포트 없음**: Discord 봇은 outbound only.
+
 ### 11.3 프로세스 운영
 - 상시 구동 필요 → `pm2` / `systemd` / Docker 컨테이너 등으로 관리 권장 (현 저장소엔 프로세스 매니저 설정 없음).
 - 로그는 stdout/stderr 로만 출력 → 외부 로깅 수집기(파일 로테이션, journald, Loki 등) 연결 권장.

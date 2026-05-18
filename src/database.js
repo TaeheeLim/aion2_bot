@@ -2,9 +2,20 @@
 
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
-// DB 파일은 프로젝트 루트에 저장
-const DB_PATH = path.join(__dirname, '..', 'aion_bot.db');
+// DB 경로 우선순위:
+//   1) 환경변수 DB_PATH (Docker 볼륨 마운트 등)
+//   2) 기본: <프로젝트 루트>/aion_bot.db
+const DB_PATH = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : path.join(__dirname, '..', 'aion_bot.db');
+
+// DB 파일이 들어갈 디렉토리가 없으면 생성 (마운트된 빈 볼륨 첫 기동 대비)
+const DB_DIR = path.dirname(DB_PATH);
+if (!fs.existsSync(DB_DIR)) {
+  fs.mkdirSync(DB_DIR, { recursive: true });
+}
 
 let db;
 

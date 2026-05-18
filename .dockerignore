@@ -1,0 +1,38 @@
+# 의존성 — 컨테이너 내부에서 새로 설치
+node_modules
+npm-debug.log
+
+# 로컬 DB 파일 (호스트의 ./data 로 마운트)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+data/
+
+# 환경 비밀
+.env
+.env.*
+!.env.example
+
+# Git / Claude / IDE
+.git
+.gitignore
+.gitattributes
+.claude
+.vscode
+.idea
+
+# 빌드 산출물 / 로그 / 임시
+bot.log
+*.log
+schema.png
+_gen_schema.py
+_tmp_check.js
+
+# 문서 (이미지 크기/빌드 캐시 절약). 운영 컨테이너에 불필요.
+context.md
+README.md
+
+# OS
+.DS_Store
+Thumbs.db
