@@ -1,0 +1,44 @@
+# ──────────────────────────────────────────────────────────────
+# docker-compose.prod.yml — 서버용 (빌드 없이 이미지만 사용)
+#
+# 로컬에서 빌드한 이미지를 서버에 옮긴 뒤 이 파일로 실행한다.
+#   - docker save / docker load  (tar 전송 방식)
+#   - 또는 GHCR/Docker Hub 등 레지스트리에서 docker pull
+#
+# 실행: docker compose -f docker-compose.prod.yml up -d
+# ──────────────────────────────────────────────────────────────
+
+services:
+  aion-bot:
+    # 로컬 빌드 시 'aion-bot:latest' 그대로, 레지스트리 사용 시 'ghcr.io/<user>/aion-bot:latest' 등으로 변경.
+    image: aion-bot:latest
+
+    container_name: aion-bot
+    restart: unless-stopped
+
+    # 절대 자동 pull 시도 안 함 (tar load 방식에서 에러 방지). 레지스트리 쓰면 'always' 또는 'missing' 으로.
+    pull_policy: never
+
+    env_file:
+      - .env
+
+    environment:
+      NODE_ENV: production
+      TZ: Asia/Seoul
+      DB_PATH: /app/data/aion_bot.db
+
+    volumes:
+      - ./data:/app/data
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'node src/index.js' > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

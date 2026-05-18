@@ -284,27 +284,71 @@ playTTSInChannel(voiceChannel, text)
 
 ### 11.2.1 Docker 배포
 
+두 가지 배포 패턴을 지원합니다. 운영 빈도에 맞춰 선택.
+
+#### (a) 서버에서 직접 빌드 — git pull → build
+가장 간단. 서버에 git + docker 만 있으면 됨.
+
 ```bash
-# 0) 호스트에 .env 작성 (DISCORD_TOKEN, CLIENT_ID, 선택 GUILD_ID)
-# 1) (최초 1회 또는 명령어 정의 변경 시) 슬래시 명령어 등록
+# 서버에서 1회
+git clone https://github.com/TaeheeLim/aion2_bot.git && cd aion2_bot
+cat > .env <<EOF
+DISCORD_TOKEN=...
+CLIENT_ID=...
+EOF
+mkdir -p data
+
+# 슬래시 명령어 등록 (최초 1회 + 명령어 정의 변경 시)
 docker compose run --rm aion-bot node src/deploy-commands.js
 
-# 2) 봇 데몬 기동
-docker compose up -d
-
-# 3) 로그
+# 기동 / 업데이트
+docker compose up -d --build
 docker compose logs -f aion-bot
-
-# 4) 업데이트 후 재기동
-git pull
-docker compose build
-docker compose up -d
 ```
 
+#### (b) 로컬 빌드 → 이미지만 서버에 전송
+서버에 빌드 도구 두기 싫거나 서버 리소스가 작을 때.
+
+```bash
+# 1) 로컬에서 빌드
+docker compose build
+
+# 2) 이미지 tar 로 저장 (압축 권장)
+docker save aion-bot:latest | gzip > aion-bot.tar.gz
+
+# 3) 서버로 전송
+scp aion-bot.tar.gz docker-compose.prod.yml .env user@server:~/aion-bot/
+
+# 4) 서버에서 import + 기동
+ssh user@server
+cd ~/aion-bot && mkdir -p data
+docker load < aion-bot.tar.gz
+# (최초 1회) 슬래시 명령어 등록
+docker compose -f docker-compose.prod.yml run --rm aion-bot node src/deploy-commands.js
+# 기동
+docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml logs -f aion-bot
+```
+
+> 서버용 `docker-compose.prod.yml` 은 `build:` 섹션 없이 `image: aion-bot:latest` 만 참조합니다. `pull_policy: never` 설정으로 자동 pull 시도를 막아 tar-load 방식과 충돌하지 않게 했습니다.
+
+#### (c) 레지스트리(GHCR) 경유 — 자주 배포할 때 권장
+```bash
+# 로컬
+docker tag aion-bot:latest ghcr.io/<github_user>/aion-bot:latest
+echo $GITHUB_TOKEN | docker login ghcr.io -u <github_user> --password-stdin
+docker push ghcr.io/<github_user>/aion-bot:latest
+
+# 서버 (docker-compose.prod.yml 의 image 를 ghcr.io/<user>/aion-bot:latest 로 변경 + pull_policy: always)
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+#### 공통 동작 사양
 - **DB 영속화**: 호스트의 `./data` ↔ 컨테이너 `/app/data` 마운트, 컨테이너 내 `DB_PATH=/app/data/aion_bot.db`. WAL 파일(`-shm`, `-wal`) 함께 보관.
 - **타임존**: 컨테이너 `TZ=Asia/Seoul` 고정 (cron 알림과 KST 일치).
 - **로그 회전**: json-file 드라이버, 10MB × 5 파일.
-- **시그널 처리**: tini PID1 → `docker stop` 시 SIGTERM 전달, 봇 깨끗하게 종료.
+- **시그널 처리**: tini PID 1 → `docker stop` 시 SIGTERM 전달, 봇 깨끗하게 종료.
 - **이미지 빌드**: multi-stage (Node 20-slim). better-sqlite3 / opus 네이티브 빌드는 builder 단계에서 처리, 런타임 이미지는 슬림.
 - **외부 포트 없음**: Discord 봇은 outbound only.
 
