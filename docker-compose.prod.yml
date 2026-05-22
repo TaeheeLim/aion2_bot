@@ -46,7 +46,9 @@ services:
         max-file: "5"
 
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'node src/index.js' > /dev/null || exit 1"]
+      # node:22-slim 에는 pgrep 가 없으므로 procfs 의 cmdline 을 직접 검사.
+      # 컨테이너가 node 유저로 떠도 /proc/<own-pid>/cmdline 은 읽을 수 있다.
+      test: ["CMD-SHELL", "grep -aq 'src/index.js' /proc/[0-9]*/cmdline 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
