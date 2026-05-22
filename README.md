@@ -6,6 +6,30 @@
 
 ---
 
+## 공식 링크 / 정책
+
+- **봇 초대하기**: `https://discord.com/oauth2/authorize?client_id=<CLIENT_ID>&permissions=3361792&scope=bot+applications.commands`
+  > `<CLIENT_ID>` 는 [Discord Developer Portal](https://discord.com/developers/applications) → 본 봇의 **Application ID** 로 교체하세요.
+- **이용약관**: [TERMS.md](./TERMS.md)
+- **개인정보처리방침**: [PRIVACY.md](./PRIVACY.md)
+- **문의 / 버그 제보**: https://github.com/TaeheeLim/aion2_bot/issues
+
+### 권장 권한 (`permissions=3361792` 산출 내역)
+| 권한 | 비트 | 용도 |
+|---|---:|---|
+| View Channels | 1024 | 기본 동작 |
+| Send Messages | 2048 | 일정 알림 발송 |
+| Embed Links | 16384 | 모든 응답이 임베드 형식 |
+| Read Message History | 65536 | 상호작용 응답 안정성 |
+| Mention @everyone, Here, All Roles | 131072 | `/일정등록` 의 역할 멘션 |
+| Connect (Voice) | 1048576 | TTS 음성 채널 입장 |
+| Speak (Voice) | 2097152 | TTS 발화 |
+
+> 음성 알림(TTS) 을 사용하지 않을 경우 Voice 권한(`Connect`, `Speak`) 은 제거 가능합니다.
+> 그 경우 권한 정수는 `3361792 - 1048576 - 2097152 = 216064`.
+
+---
+
 ## 기능
 
 ### 🔧 빌드 공유
