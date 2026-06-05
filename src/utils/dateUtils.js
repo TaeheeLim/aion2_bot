@@ -105,12 +105,14 @@ function isValidDate(str) {
 }
 
 /**
- * HH:mm 형식 유효성 검사
+ * HH:mm 형식 + 범위(시 00~23, 분 00~59) 유효성 검사
  * @param {string} str
  * @returns {boolean}
  */
 function isValidTime(str) {
-  return /^\d{2}:\d{2}$/.test(str);
+  if (!/^\d{2}:\d{2}$/.test(str)) return false;
+  const [h, m] = str.split(':').map(Number);
+  return h >= 0 && h <= 23 && m >= 0 && m <= 59;
 }
 
 module.exports = {

@@ -19,11 +19,13 @@ const { PermissionsBitField } = require('discord.js');
 const googleTTS = require('google-tts-api');
 
 /**
- * 음성 채널에 입장하여 TTS 재생 후 퇴장
+ * 음성 채널에 입장하여 TTS 재생 후 퇴장 (내부 구현).
+ * 길드당 단일 음성 연결을 공유하므로, 동시 호출 시 서로의 connection 을
+ * destroy 하지 않도록 외부 래퍼(playTTSInChannel)가 길드 단위로 직렬화한다.
  * @param {import('discord.js').VoiceChannel} voiceChannel
  * @param {string} text - 읽어줄 텍스트
  */
-async function playTTSInChannel(voiceChannel, text) {
+async function _playTTSInChannel(voiceChannel, text) {
   const { id: channelId, guild } = voiceChannel;
   console.log(`[TTS] 재생 요청: 채널="${voiceChannel.name}", 텍스트="${text}"`);
 
@@ -104,6 +106,39 @@ async function playTTSInChannel(voiceChannel, text) {
     if (tmpFile) fs.unlink(tmpFile, () => {});
     connection.destroy();
   }
+}
+
+// ──────────────────────────────────────────────────────────
+// 길드 단위 직렬화 큐
+// 같은 길드의 TTS 재생을 순차 실행해, 진행 중인 재생을 다른 호출이
+// connection.destroy() 로 끊어 무음/오류가 나는 충돌을 방지한다.
+// ──────────────────────────────────────────────────────────
+const guildTtsQueues = new Map(); // guildId -> 마지막 작업의 Promise
+
+/**
+ * 음성 채널에 입장하여 TTS 재생 후 퇴장.
+ * 동일 길드 요청은 큐에 직렬화되어 이전 재생이 끝난 뒤 시작된다.
+ * @param {import('discord.js').VoiceChannel} voiceChannel
+ * @param {string} text - 읽어줄 텍스트
+ * @returns {Promise<void>}
+ */
+function playTTSInChannel(voiceChannel, text) {
+  const guildId = voiceChannel.guild.id;
+  const prev = guildTtsQueues.get(guildId) ?? Promise.resolve();
+
+  // 이전 작업의 성공/실패와 무관하게 다음 작업을 이어서 실행
+  const next = prev
+    .catch(() => {})
+    .then(() => _playTTSInChannel(voiceChannel, text));
+
+  // 큐 꼬리 갱신. 이 작업이 (현재 꼬리이면서) 끝나면 맵에서 정리해
+  // Map 이 무한히 커지지 않게 한다.
+  guildTtsQueues.set(guildId, next);
+  next.catch(() => {}).finally(() => {
+    if (guildTtsQueues.get(guildId) === next) guildTtsQueues.delete(guildId);
+  });
+
+  return next;
 }
 
 module.exports = { playTTSInChannel };

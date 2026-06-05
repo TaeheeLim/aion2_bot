@@ -39,13 +39,16 @@ discord_aion_bot/
     ├── database.js            # SQLite 초기화 + 마이그레이션
     ├── commands/
     │   ├── build.js           # /빌드등록 /빌드검색 /빌드목록 /빌드삭제
-    │   ├── schedule.js        # /일정등록 /일정목록 /오늘일정 /일정삭제
+    │   ├── schedule.js        # /일정등록 /일정목록 /오늘일정 /일정삭제 (+ RSVP 버튼 부착)
     │   ├── tts.js             # /tts테스트 (운영 진단용)
     │   ├── dice.js            # /주사위 (1~N 랜덤)
     │   ├── calendar.js        # /달력 (월간 ASCII 달력)
-    │   └── inventory.js       # /장비생성 /장비목록 /장비삭제 /강화 /돌파
+    │   ├── inventory.js       # /장비생성 /장비목록 /장비삭제 /강화 /돌파
+    │   ├── enhanceCalc.js     # /강화계산 /강화시뮬 (기대비용·몬테카를로)
+    │   ├── ranking.js         # /강화랭킹 (명예의 전당)
+    │   └── rsvp.js            # /참여율 + 참가 버튼 핸들러·헬퍼
     ├── data/
-    │   └── enhanceData.js     # 아이온강화.xlsx 추출 데이터 + 룩업 헬퍼
+    │   └── enhanceData.js     # 아이온강화.xlsx 추출 데이터 + 룩업/EV/시뮬 헬퍼
     ├── services/
     │   └── scheduleChecker.js # node-cron 1분 폴러 → 알림 발송
     └── utils/
@@ -135,15 +138,41 @@ DB 파일: `<프로젝트루트>/aion_bot.db` (WAL 모드, foreign_keys ON).
 | author_id | TEXT NOT NULL | 등록자 |
 | created_at / updated_at | TEXT | 타임스탬프 |
 
-> **마이그레이션 방식**: [src/database.js:69-76](src/database.js:69) — `ALTER TABLE ... ADD COLUMN` 을 try/catch 로 감싸 멱등 적용. 새 컬럼을 추가할 때 같은 패턴 유지.
+> **마이그레이션 방식**: [src/database.js](src/database.js) — `ALTER TABLE ... ADD COLUMN` 과 `CREATE INDEX IF NOT EXISTS` 를 `migrations` 배열에 모아 try/catch 로 멱등 적용. 새 컬럼·인덱스 추가 시 같은 패턴 유지.
 
 > **중요**: `scheduled_at` 은 항상 UTC ISO. 비교/표시는 `dateUtils` 의 `parseKST` / `formatKST` 를 통해야 한다. 직접 문자열 비교 금지.
+
+### 5.4 `schedule_rsvp` — 일정 참가신청(RSVP)
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| schedule_id | INTEGER | 대상 일정 ID (`schedules.id`) — PK 일부 |
+| guild_id | TEXT NOT NULL | 서버 ID (집계/격리) |
+| user_id | TEXT NOT NULL | 응답자 Discord User ID — PK 일부 |
+| status | TEXT NOT NULL | `'참가'` \| `'불참'` \| `'보류'` |
+| updated_at | TEXT | 마지막 응답 시각 |
+
+> **복합 PK `(schedule_id, user_id)`** — 사용자당 일정별 1표. 버튼 재클릭 시 `INSERT ... ON CONFLICT DO UPDATE` 로 status 갱신(upsert). 일정 삭제/정리 시 별도 cascade 없음(레코드는 남지만 `/참여율` 분모는 "RSVP가 달린 distinct 일정 수"라 영향 적음).
+
+### 5.5 성능 인덱스
+
+`database.js` 의 `migrations` 배열에서 멱등 생성:
+
+| 인덱스 | 대상 쿼리 |
+|---|---|
+| `idx_inventory_guild_user (guild_id,user_id)` | `/장비목록`, `/강화랭킹` 집계 |
+| `idx_schedules_scheduled_at (scheduled_at)` | cron 알림 윈도우 스캔, `/달력`, `/일정목록` |
+| `idx_builds_guild_created (guild_id,created_at)` | `/빌드목록` `/빌드검색` 정렬 |
+| `idx_rsvp_guild_user (guild_id,user_id)` | `/참여율` 사용자별 집계 |
+
+> cron 알림 쿼리는 인덱스 도입 후 풀스캔(`SCAN`) → 인덱스 탐색(`SEARCH USING INDEX`)으로 바뀌어, 테이블 크기와 무관하게 60초 윈도우만 b-tree로 조회한다.
 
 ## 6. 슬래시 명령어 명세
 
 라우팅: `index.js` 의 `InteractionCreate` 이벤트에서 각 핸들러를 순차 시도. 핸들러는 자신이 처리할 명령어이면 `true` 를 반환 (체인 오브 리스폰서빌리티).
 
-순서: build → schedule → tts → dice → calendar → inventory.
+- **버튼 인터랙션**(`interaction.isButton()`)은 슬래시 처리보다 먼저 분기해 `handleRsvpButton` 으로 보낸다. (customId `rsvp:<scheduleId>:<status>`)
+- **슬래시 명령** 순서: build → schedule → tts → dice → calendar → inventory → **enhanceCalc → ranking → rsvp**.
 
 ### 6.1 빌드 (`commands/build.js`)
 | 명령어 | 옵션 | 동작 | 응답 형태 |
@@ -156,12 +185,17 @@ DB 파일: `<프로젝트루트>/aion_bot.db` (WAL 모드, foreign_keys ON).
 ### 6.2 일정 (`commands/schedule.js`)
 | 명령어 | 옵션 | 동작 |
 |---|---|---|
-| `/일정등록` | 제목*, 날짜*(`YYYY-MM-DD` 또는 `오늘`), 시간*(`HH:mm`), 알림채널*, 설명, 멘션역할, 60/30/10/3분전알림(boolean), 음성채널 | INSERT 후 Embed로 확인. 알림 1개 이상 필수, 과거 시간 거부. |
+| `/일정등록` | 제목*, 날짜*(`YYYY-MM-DD` 또는 `오늘`), 시간*(`HH:mm`), 알림채널*, 설명, 멘션역할, 60/30/10/3분전알림(boolean), 음성채널 | INSERT 후 Embed로 확인 + **참가/불참/보류 버튼(RSVP)** 부착. 알림 1개 이상 필수, 과거 시간 거부. |
 | `/일정목록` | — | `scheduled_at > now` 오름차순, 최대 15건 조회 (Embed 10개 노출) |
 | `/오늘일정` | — | KST 오늘 00:00\~23:59 범위 |
 | `/일정삭제` | 일정id* | 본인 or 관리자만 |
+| `/참여율` | — | 멤버별 참가(✅) 응답 수 / RSVP가 달린 일정 수 비율 랭킹 (최대 15명). `commands/rsvp.js` |
 
-> 입력 검증: `isValidDate` (`YYYY-MM-DD` 정규식 + parseISO), `isValidTime` (`HH:mm` 정규식). KST 입력 → `fromZonedTime` 으로 UTC 변환 저장.
+> 입력 검증: `isValidDate` (`YYYY-MM-DD` 정규식 + parseISO), `isValidTime` (`HH:mm` 정규식 **+ 시 0~23·분 0~59 범위 검증**). KST 입력 → `fromZonedTime` 으로 UTC 변환 저장.
+
+> **RSVP**: `/일정등록` 응답·알림 메시지의 버튼 클릭 → `handleRsvpButton` 이 `schedule_rsvp` upsert 후 임베드의 "🙋 참가 현황" 필드를 즉시 갱신하고 ephemeral 확인을 보낸다. 버튼·요약 헬퍼(`buildRsvpButtons`, `rsvpSummary`)는 `commands/rsvp.js` 에 있고 `schedule.js`·`scheduleChecker.js` 가 재사용한다.
+
+> **지난 일정 자동 정리**: `scheduleChecker` 가 매분 cron 안에서 `cleanupOldSchedules()` 를 호출(실 DELETE 는 1시간 간격). 종료 후 `CLEANUP_RETENTION_DAYS=7` 일 지난 일정을 삭제해 폴링 대상을 가볍게 유지.
 
 ### 6.3 TTS 진단 (`commands/tts.js`)
 | 명령어 | 옵션 | 동작 |
@@ -183,8 +217,8 @@ DB 파일: `<프로젝트루트>/aion_bot.db` (WAL 모드, foreign_keys ON).
 ### 6.6 강화 시뮬레이터 (`commands/inventory.js`)
 | 명령어 | 옵션 | 동작 |
 |---|---|---|
-| `/장비생성` | 종류*(`영웅`\|`전념의룬`), 이름*(<=30자) | 강화 1강 / 돌파 0 상태로 새 장비 INSERT. 비용 없음. |
-| `/장비목록` | — | 본인 장비 최대 30개 + 사용자 전체 누적 사용량을 ASCII 트리 형태로 ephemeral 출력. |
+| `/장비생성` | 종류*(`영웅`\|`전념의룬`), 이름*(<=30자) | 강화 1강 / 돌파 0 상태로 새 장비 INSERT. 비용 없음. **사용자당 최대 10개**(`MAX_ITEMS_PER_USER`), 카운트+INSERT 를 트랜잭션으로 원자화. |
+| `/장비목록` | — | 본인 장비 + 사용자 전체 누적 사용량을 ASCII 트리 형태로 ephemeral 출력. |
 | `/장비삭제` | 장비id* | 본인 소유 장비만 DELETE. 파괴된 장비도 삭제 가능. |
 | `/강화` | 장비id* | 현재 강화 레벨에 맞는 확률·비용을 적용, 결과를 Embed로 공개. 영웅 강화는 실패 시 보정 누적, 전념의룬은 실패 시 즉시 파괴. |
 | `/돌파` | 장비id* | 영웅 + 강화 20강 도달 장비만. 실패 시 보정 누적 (파괴 X). |
@@ -208,6 +242,22 @@ DB 파일: `<프로젝트루트>/aion_bot.db` (WAL 모드, foreign_keys ON).
 #### UI 출력 디자인
 - `/장비목록` 은 ephemeral(본인만 봄). 트리 형태로 한 장비당 4~5줄. 한글 폭 문제 회피 위해 박스 정렬 대신 들여쓰기 사용.
 - `/강화` `/돌파` 응답은 공개. 색상: 성공=초록/노랑, 실패=빨강, 만렙 도달 시 별도 안내 필드 추가.
+
+> **동시성**: `/강화` `/돌파` `/장비생성` 은 `db.transaction()` 안에서 행을 **재조회(re-read)** 후 굴림·UPDATE/INSERT 를 수행해, 동일 장비 동시 요청 시 보정/레벨 꼬임과 보유 상한 우회를 방지한다.
+
+### 6.7 강화 분석 도구 (`commands/enhanceCalc.js`)
+| 명령어 | 옵션 | 동작 |
+|---|---|---|
+| `/강화계산` | 종류*, 목표강화*(2~20/2~10), 목표돌파(1~5, 영웅) | 1강/돌파0 → 목표까지 **해석적 기댓값**(평균 시도·키나·재료). 영웅 보정 누적을 `E[N]=Σ P(N>n)` 으로 정확히 반영. 전념의룬은 파괴 때문에 EV 대신 **도달 확률**을 표시. |
+| `/강화시뮬` | 종류*, 목표강화*, 목표돌파, 횟수(기본 1만, 최대 10만) | **몬테카를로** 시뮬. 영웅: 최선/중앙값/상위5%/최악 키나 분포. 전념의룬: 도달률·파괴율. |
+
+> 계산 헬퍼는 `data/enhanceData.js` 의 `expectedHeroEnhance` / `expectedHeroBreakthrough`(해석적), `simulateOnce` / `simulateMany`(몬테카를로). 영웅 강화는 보정으로 결국 100%에 수렴하므로 EV 가 유한. 두 명령의 평균값은 서로 수렴(검증: 20강 ≈ 33.5회 / ≈ 3,997만 키나).
+> `목표돌파` 지정 시 강화 목표는 자동으로 20강으로 간주(돌파 전제). `횟수` 상한 10만은 동기 better-sqlite3/이벤트 루프 블로킹 방지용.
+
+### 6.8 강화 랭킹 (`commands/ranking.js`)
+| 명령어 | 옵션 | 동작 |
+|---|---|---|
+| `/강화랭킹` | — | 서버 명예의 전당. `inventory` 집계: 키나왕(SUM, 상위 5) · 최강 장비(영웅 `강화×100+돌파×20` 가중 정렬, 상위 5) · 파괴왕(파괴 수 상위 3) · 20강/돌파5/룬10강 달성 현황. 공개 Embed. |
 
 ## 7. 알림 엔진 동작 흐름
 
@@ -405,10 +455,15 @@ docker compose -f docker-compose.prod.yml up -d
 | 슬래시 명령어가 안 보임 | `npm run deploy` 실행 여부, `GUILD_ID` 설정, 글로벌 등록 반영 지연(최대 1시간) |
 | 알림이 안 옴 | 봇 프로세스 살아있나, `notify_X=1` 인가, 대상 시각이 윈도우 밖으로 빠졌나, `channel_id` 채널이 삭제되지 않았나 |
 | TTS 무음 | `/tts테스트` 실행 → 권한 누락 / server-mute / `Ready` 진입 실패 / 오디오 버퍼 < 500B 메시지 확인 |
+| 신규 명령어(`/강화계산` 등)가 안 보임 | 명령어 정의 4개 추가됨 → `npm run deploy` 재실행 필수 |
+| RSVP 버튼 눌러도 무반응 | 일정이 이미 삭제/정리되었는지, 봇이 `Send Messages` 권한 있는지 확인 |
 | `ALTER TABLE ... duplicate column` | 정상. 마이그레이션 멱등 처리. |
 | `unhandledRejection` 로그만 출력 | 프로세스는 살아 있음. 원인 추적 후 try/catch 보강. |
 
 ---
 
-**최종 업데이트 기준 커밋**: `78d72c7` (의존성/코드/스크립트 정리)
+**최근 변경(미커밋)**: 슬래시 명령어 16 → 20개 (`/강화계산` `/강화시뮬` `/강화랭킹` `/참여율`), 일정 RSVP 버튼,
+`schedule_rsvp` 테이블 + 성능 인덱스 4종, 지난 일정 자동 정리, 장비 보유 상한(10),
+강화/돌파/생성 트랜잭션화, `isValidTime` 범위 검증, TTS 길드 단위 직렬화 큐.
+**최종 안정 커밋(이전)**: `78d72c7` (의존성/코드/스크립트 정리)
 **검토 권장 시점**: 디스코드 라이브러리 메이저 업데이트, TTS provider 정책 변경, 알림 누락 사고 발생 시.

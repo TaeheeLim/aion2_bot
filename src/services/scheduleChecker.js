@@ -5,8 +5,35 @@ const { EmbedBuilder } = require('discord.js');
 const { getDb } = require('../database');
 const { formatKST } = require('../utils/dateUtils');
 const { playTTSInChannel } = require('../utils/ttsPlayer');
+const { rsvpSummary } = require('../commands/rsvp');
 
-const CHECK_WINDOW_SEC = 30; // ±30초 오차 허용
+const CHECK_WINDOW_SEC = 30;          // ±30초 오차 허용
+const CLEANUP_RETENTION_DAYS = 7;     // 종료 후 N일 지난 일정 정리
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 정리 실행 최소 간격(1시간)
+
+let lastCleanupAt = 0;
+
+/**
+ * 종료된 지 오래된 일정을 삭제해 테이블/인덱스를 가볍게 유지한다.
+ * 매분 cron 안에서 호출되지만 실제 DELETE 는 1시간에 한 번만 수행.
+ */
+function cleanupOldSchedules() {
+  const now = Date.now();
+  if (now - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
+  lastCleanupAt = now;
+
+  const cutoff = new Date(now - CLEANUP_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  try {
+    const info = getDb()
+      .prepare(`DELETE FROM schedules WHERE scheduled_at < ?`)
+      .run(cutoff);
+    if (info.changes > 0) {
+      console.log(`[scheduleChecker] 지난 일정 ${info.changes}건 정리 완료 (기준: ${CLEANUP_RETENTION_DAYS}일 경과)`);
+    }
+  } catch (err) {
+    console.error('[scheduleChecker] 지난 일정 정리 오류:', err);
+  }
+}
 
 async function checkAndNotify(client) {
   const db  = getDb();
@@ -72,6 +99,10 @@ async function sendNotification(client, row, minutes) {
         );
 
       if (row.description) embed.addFields({ name: '📝 설명', value: row.description });
+      try {
+        const summary = rsvpSummary(row.id);
+        if (summary) embed.addFields({ name: '🙋 참가 현황', value: summary });
+      } catch { /* RSVP 요약 실패 무시 */ }
       embed.setFooter({ text: `일정 ID: #${row.id}` }).setTimestamp();
 
       await channel.send({
@@ -106,6 +137,7 @@ function startScheduleChecker(client) {
   cron.schedule('* * * * *', async () => {
     try {
       await checkAndNotify(client);
+      cleanupOldSchedules();
     } catch (err) {
       console.error('[scheduleChecker] 예기치 못한 오류:', err);
     }

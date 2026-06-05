@@ -15,6 +15,7 @@ const {
 } = require('../data/enhanceData');
 
 const ITEM_TYPES = ['영웅', '전념의룬'];
+const MAX_ITEMS_PER_USER = 10;   // 사용자(서버 기준)당 장비 보유 상한
 
 // ──────────────────────────────────────────────────────────
 // 슬래시 명령어 정의
@@ -165,16 +166,28 @@ async function handleItemCreate(interaction) {
   }
 
   try {
-    const result = db.prepare(`
-      INSERT INTO inventory (guild_id, user_id, item_name, item_type)
-      VALUES (?, ?, ?, ?)
-    `).run(guildId, userId, name, type);
+    // 보유 개수 확인 + INSERT 를 원자적으로 (동시 생성 시 상한 초과 방지)
+    const txResult = db.transaction(() => {
+      const { c } = db.prepare(
+        `SELECT COUNT(*) AS c FROM inventory WHERE guild_id = ? AND user_id = ?`
+      ).get(guildId, userId);
+      if (c >= MAX_ITEMS_PER_USER) {
+        return { error: `❌ 장비는 최대 ${MAX_ITEMS_PER_USER}개까지 보유할 수 있습니다. \`/장비삭제\` 로 정리 후 다시 시도해주세요. (현재 ${c}개)` };
+      }
+      const result = db.prepare(`
+        INSERT INTO inventory (guild_id, user_id, item_name, item_type)
+        VALUES (?, ?, ?, ?)
+      `).run(guildId, userId, name, type);
+      return { id: result.lastInsertRowid };
+    })();
+
+    if (txResult.error) return interaction.editReply({ content: txResult.error });
 
     const embed = new EmbedBuilder()
       .setColor(0x06d6a0)
       .setTitle('🛠️ 장비 생성 완료')
       .addFields(
-        { name: '🆔 장비 ID',  value: `#${result.lastInsertRowid}`, inline: true },
+        { name: '🆔 장비 ID',  value: `#${txResult.id}`, inline: true },
         { name: '🏷️ 종류',    value: type,                           inline: true },
         { name: '📛 이름',     value: name,                           inline: true },
         { name: '⚒️ 강화',    value: '1강',                           inline: true },
@@ -205,8 +218,8 @@ async function handleItemList(interaction) {
       SELECT * FROM inventory
       WHERE guild_id = ? AND user_id = ?
       ORDER BY destroyed ASC, id ASC
-      LIMIT 30
-    `).all(guildId, userId);
+      LIMIT ?
+    `).all(guildId, userId, MAX_ITEMS_PER_USER);
 
     const totals = computeTotals(items);
     const text   = renderInventoryAscii(items, totals);
@@ -282,55 +295,72 @@ async function handleEnhance(interaction) {
     });
   }
 
-  // step 조회
-  const step = item.item_type === '영웅'
-    ? getHeroEnhanceStep(item.enhance_level)
-    : getRuneEnhanceStep(item.enhance_level);
-
-  if (!step) return interaction.editReply({ content: '❌ 강화 데이터를 찾을 수 없습니다.' });
-
-  // 보정 적용 (영웅만 fail_boost 사용)
-  const failBoost = step.fail_boost ?? 0;
-  const effectiveProb = Math.min(100, step.prob + (item.enhance_fail_streak * failBoost));
-
-  // 확률 굴림
-  const success = rollSuccess(effectiveProb);
-
-  // DB 업데이트
-  const now = new Date().toISOString();
-  let newLevel       = item.enhance_level;
-  let newFailStreak  = item.enhance_fail_streak;
-  let newDestroyed   = item.destroyed;
-  let destroyedReason = item.destroyed_reason;
-
-  if (success) {
-    newLevel = item.enhance_level + 1;
-    newFailStreak = 0;
-  } else {
-    if (item.item_type === '전념의룬') {
-      newDestroyed = 1;
-      destroyedReason = `강화 ${item.enhance_level} → ${item.enhance_level + 1} 실패`;
-    } else {
-      newFailStreak = item.enhance_fail_streak + 1;
-    }
-  }
-
+  // ── 원자적 강화 처리 ────────────────────────────────────
+  // 동시 요청 race condition 방지: 트랜잭션 내부에서 행을 다시 읽어
+  // (re-read) 최신 상태 기준으로 굴림·계산·UPDATE 를 한 번에 처리한다.
+  let txResult;
   try {
-    db.prepare(`
-      UPDATE inventory
-      SET enhance_level = ?,
-          enhance_fail_streak = ?,
-          destroyed = ?,
-          destroyed_reason = ?,
-          total_kinah_used = total_kinah_used + ?,
-          total_enhance_stones_used = total_enhance_stones_used + ?,
-          updated_at = ?
-      WHERE id = ?
-    `).run(newLevel, newFailStreak, newDestroyed, destroyedReason, step.kinah, step.stones, now, item.id);
+    txResult = db.transaction(() => {
+      const cur = getItem(db, itemId, guildId);
+      if (!cur)                return { error: `❌ 장비 #${itemId} 를 찾을 수 없습니다.` };
+      if (cur.user_id !== userId) return { error: '⛔ 본인 소유의 장비만 강화할 수 있습니다.' };
+      if (cur.destroyed)       return { error: `💀 파괴된 장비입니다. (#${cur.id} ${cur.item_name})` };
+      if (cur.item_type === '영웅' && cur.enhance_level >= MAX_HERO_ENHANCE) {
+        return { error: `🏆 이미 강화 ${MAX_HERO_ENHANCE}강 만렙입니다. \`/돌파 장비id:${cur.id}\` 로 돌파를 시도해보세요.` };
+      }
+      if (cur.item_type === '전념의룬' && cur.enhance_level >= MAX_RUNE_ENHANCE) {
+        return { error: `🏆 이미 전념의룬 ${MAX_RUNE_ENHANCE}강 만렙입니다!` };
+      }
+
+      const step = cur.item_type === '영웅'
+        ? getHeroEnhanceStep(cur.enhance_level)
+        : getRuneEnhanceStep(cur.enhance_level);
+      if (!step) return { error: '❌ 강화 데이터를 찾을 수 없습니다.' };
+
+      const failBoost = step.fail_boost ?? 0;
+      const effectiveProb = Math.min(100, step.prob + (cur.enhance_fail_streak * failBoost));
+      const success = rollSuccess(effectiveProb);
+
+      let newLevel        = cur.enhance_level;
+      let newFailStreak   = cur.enhance_fail_streak;
+      let newDestroyed    = cur.destroyed;
+      let destroyedReason = cur.destroyed_reason;
+
+      if (success) {
+        newLevel = cur.enhance_level + 1;
+        newFailStreak = 0;
+      } else if (cur.item_type === '전념의룬') {
+        newDestroyed = 1;
+        destroyedReason = `강화 ${cur.enhance_level} → ${cur.enhance_level + 1} 실패`;
+      } else {
+        newFailStreak = cur.enhance_fail_streak + 1;
+      }
+
+      db.prepare(`
+        UPDATE inventory
+        SET enhance_level = ?,
+            enhance_fail_streak = ?,
+            destroyed = ?,
+            destroyed_reason = ?,
+            total_kinah_used = total_kinah_used + ?,
+            total_enhance_stones_used = total_enhance_stones_used + ?,
+            updated_at = ?
+        WHERE id = ?
+      `).run(newLevel, newFailStreak, newDestroyed, destroyedReason, step.kinah, step.stones, new Date().toISOString(), cur.id);
+
+      return { before: cur, step, failBoost, effectiveProb, success, newLevel, newFailStreak, newDestroyed };
+    })();
   } catch (err) {
     console.error('[강화] DB 오류:', err);
     return interaction.editReply({ content: '❌ 강화 처리 중 오류가 발생했습니다.' });
   }
+
+  if (txResult.error) return interaction.editReply({ content: txResult.error });
+
+  // 트랜잭션이 읽은 최신 스냅샷 기준으로 응답 구성
+  const { before, step, failBoost, effectiveProb, success, newLevel, newFailStreak, newDestroyed } = txResult;
+  item.enhance_level      = before.enhance_level;
+  item.enhance_fail_streak = before.enhance_fail_streak;
 
   // 응답 임베드
   const isRune       = item.item_type === '전념의룬';
@@ -409,39 +439,61 @@ async function handleBreakthrough(interaction) {
     });
   }
 
-  const step = getHeroBreakthroughStep(item.breakthrough_level);
-  if (!step) return interaction.editReply({ content: '❌ 돌파 데이터를 찾을 수 없습니다.' });
-
-  const failBoost = step.fail_boost ?? 0;
-  const effectiveProb = Math.min(100, step.prob + (item.breakthrough_fail_streak * failBoost));
-  const success = rollSuccess(effectiveProb);
-
-  const now = new Date().toISOString();
-  let newLevel       = item.breakthrough_level;
-  let newFailStreak  = item.breakthrough_fail_streak;
-
-  if (success) {
-    newLevel = item.breakthrough_level + 1;
-    newFailStreak = 0;
-  } else {
-    newFailStreak = item.breakthrough_fail_streak + 1;
-    // 영웅 장비는 돌파 실패해도 파괴되지 않음 (사용자 요구사항)
-  }
-
+  // ── 원자적 돌파 처리 (동시 요청 race condition 방지) ────
+  let txResult;
   try {
-    db.prepare(`
-      UPDATE inventory
-      SET breakthrough_level = ?,
-          breakthrough_fail_streak = ?,
-          total_kinah_used = total_kinah_used + ?,
-          total_breakthrough_stones_used = total_breakthrough_stones_used + ?,
-          updated_at = ?
-      WHERE id = ?
-    `).run(newLevel, newFailStreak, step.kinah, step.stones, now, item.id);
+    txResult = db.transaction(() => {
+      const cur = getItem(db, itemId, guildId);
+      if (!cur)                 return { error: `❌ 장비 #${itemId} 를 찾을 수 없습니다.` };
+      if (cur.user_id !== userId) return { error: '⛔ 본인 소유의 장비만 돌파할 수 있습니다.' };
+      if (cur.destroyed)        return { error: `💀 파괴된 장비입니다. (#${cur.id} ${cur.item_name})` };
+      if (cur.item_type !== '영웅') return { error: '❌ 돌파는 영웅 장비만 가능합니다. (전념의룬은 돌파 없음)' };
+      if (cur.enhance_level < MAX_HERO_ENHANCE) {
+        return { error: `❌ 강화 ${MAX_HERO_ENHANCE}강 도달 후에만 돌파 가능합니다. (현재 강화 ${cur.enhance_level}강)` };
+      }
+      if (cur.breakthrough_level >= MAX_HERO_BREAKTHROUGH) {
+        return { error: `🏆 이미 돌파 ${MAX_HERO_BREAKTHROUGH} 만렙입니다!` };
+      }
+
+      const step = getHeroBreakthroughStep(cur.breakthrough_level);
+      if (!step) return { error: '❌ 돌파 데이터를 찾을 수 없습니다.' };
+
+      const failBoost = step.fail_boost ?? 0;
+      const effectiveProb = Math.min(100, step.prob + (cur.breakthrough_fail_streak * failBoost));
+      const success = rollSuccess(effectiveProb);
+
+      let newLevel      = cur.breakthrough_level;
+      let newFailStreak = cur.breakthrough_fail_streak;
+      if (success) {
+        newLevel = cur.breakthrough_level + 1;
+        newFailStreak = 0;
+      } else {
+        newFailStreak = cur.breakthrough_fail_streak + 1;
+        // 영웅 장비는 돌파 실패해도 파괴되지 않음 (사용자 요구사항)
+      }
+
+      db.prepare(`
+        UPDATE inventory
+        SET breakthrough_level = ?,
+            breakthrough_fail_streak = ?,
+            total_kinah_used = total_kinah_used + ?,
+            total_breakthrough_stones_used = total_breakthrough_stones_used + ?,
+            updated_at = ?
+        WHERE id = ?
+      `).run(newLevel, newFailStreak, step.kinah, step.stones, new Date().toISOString(), cur.id);
+
+      return { before: cur, step, failBoost, effectiveProb, success, newLevel, newFailStreak };
+    })();
   } catch (err) {
     console.error('[돌파] DB 오류:', err);
     return interaction.editReply({ content: '❌ 돌파 처리 중 오류가 발생했습니다.' });
   }
+
+  if (txResult.error) return interaction.editReply({ content: txResult.error });
+
+  const { before, step, failBoost, effectiveProb, success, newLevel, newFailStreak } = txResult;
+  item.breakthrough_level       = before.breakthrough_level;
+  item.breakthrough_fail_streak = before.breakthrough_fail_streak;
 
   const targetLevel  = item.breakthrough_level + 1;
   const beforeStreak = item.breakthrough_fail_streak;

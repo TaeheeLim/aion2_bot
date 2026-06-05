@@ -109,6 +109,133 @@ function getRuneEnhanceStep(currentLevel) {
   return RUNE_ENHANCE[currentLevel];
 }
 
+// ──────────────────────────────────────────────────────────
+// 기댓값(EV) 계산 — 영웅 전용 (보정 누적 반영, 파괴 없음)
+//   한 스텝의 적용 확률은 매 실패마다 fail_boost(%p)씩 올라 결국 100%에 도달하므로
+//   유한 기대 시도횟수를 갖는다. E[시도] = Σ P(N>n) = Σ (직전 n회 연속 실패 확률).
+// ──────────────────────────────────────────────────────────
+
+function stepExpectation(step) {
+  const p0 = step.prob;
+  const b  = step.fail_boost ?? 0;
+  let expected = 0; // E[시도 횟수]
+  let surv = 1;     // P(N > n) = 직전 n회 연속 실패 확률
+  for (let n = 0; n < 100000; n++) {
+    expected += surv;
+    const eff = Math.min(100, p0 + n * b);
+    const failProb = 1 - eff / 100;
+    if (failProb <= 1e-12) break; // 다음 시도는 확정 성공
+    surv *= failProb;
+    if (surv < 1e-12) break;
+  }
+  return { attempts: expected, kinah: expected * step.kinah, stones: expected * step.stones };
+}
+
+/**
+ * 영웅 강화 1강 → targetLevel 기대 비용.
+ * @param {number} targetLevel 2~20
+ */
+function expectedHeroEnhance(targetLevel) {
+  let attempts = 0, kinah = 0, stones = 0;
+  for (let lv = 1; lv < targetLevel; lv++) {
+    const e = stepExpectation(getHeroEnhanceStep(lv));
+    attempts += e.attempts; kinah += e.kinah; stones += e.stones;
+  }
+  return { attempts, kinah, stones };
+}
+
+/**
+ * 영웅 돌파 0 → targetLevel 기대 비용.
+ * @param {number} targetLevel 1~5
+ */
+function expectedHeroBreakthrough(targetLevel) {
+  let attempts = 0, kinah = 0, stones = 0;
+  for (let lv = 0; lv < targetLevel; lv++) {
+    const e = stepExpectation(getHeroBreakthroughStep(lv));
+    attempts += e.attempts; kinah += e.kinah; stones += e.stones;
+  }
+  return { attempts, kinah, stones };
+}
+
+// ──────────────────────────────────────────────────────────
+// 몬테카를로 시뮬레이션 — 실제 메커니즘 그대로 (영웅 보정 / 전념의룬 파괴 포함)
+// ──────────────────────────────────────────────────────────
+
+/**
+ * 1강/돌파0 에서 목표까지 한 번 진행 시뮬.
+ * @returns {{kinah,enhanceStones,breakthroughStones,destroyed:boolean,attempts}}
+ */
+function simulateOnce(type, targetEnhance, targetBreakthrough = 0) {
+  let kinah = 0, eStones = 0, bStones = 0, attempts = 0;
+
+  if (type === '전념의룬') {
+    let lv = 1;
+    while (lv < targetEnhance) {
+      const step = getRuneEnhanceStep(lv);
+      kinah += step.kinah; eStones += step.stones; attempts++;
+      if (Math.random() * 100 < step.prob) lv++;
+      else return { kinah, enhanceStones: eStones, breakthroughStones: bStones, destroyed: true, attempts };
+    }
+    return { kinah, enhanceStones: eStones, breakthroughStones: bStones, destroyed: false, attempts };
+  }
+
+  // 영웅: 강화 (실패 보정 누적, 파괴 없음)
+  let lv = 1, eFail = 0;
+  while (lv < targetEnhance) {
+    const step = getHeroEnhanceStep(lv);
+    const eff = Math.min(100, step.prob + eFail * (step.fail_boost ?? 0));
+    kinah += step.kinah; eStones += step.stones; attempts++;
+    if (Math.random() * 100 < eff) { lv++; eFail = 0; } else eFail++;
+  }
+  // 영웅: 돌파
+  let bl = 0, bFail = 0;
+  while (bl < targetBreakthrough) {
+    const step = getHeroBreakthroughStep(bl);
+    const eff = Math.min(100, step.prob + bFail * (step.fail_boost ?? 0));
+    kinah += step.kinah; bStones += step.stones; attempts++;
+    if (Math.random() * 100 < eff) { bl++; bFail = 0; } else bFail++;
+  }
+  return { kinah, enhanceStones: eStones, breakthroughStones: bStones, destroyed: false, attempts };
+}
+
+/**
+ * N회 몬테카를로 후 통계 반환.
+ */
+function simulateMany(type, targetEnhance, targetBreakthrough, trials) {
+  const kinahArr = [];
+  let destroyedCount = 0;
+  let sumKinah = 0, sumEStones = 0, sumBStones = 0, sumAttempts = 0;
+  let okKinah = 0, okEStones = 0, okBStones = 0, okCount = 0;
+
+  for (let i = 0; i < trials; i++) {
+    const r = simulateOnce(type, targetEnhance, targetBreakthrough);
+    sumKinah += r.kinah; sumEStones += r.enhanceStones; sumBStones += r.breakthroughStones; sumAttempts += r.attempts;
+    if (r.destroyed) {
+      destroyedCount++;
+    } else {
+      okCount++; okKinah += r.kinah; okEStones += r.enhanceStones; okBStones += r.breakthroughStones;
+      kinahArr.push(r.kinah);
+    }
+  }
+
+  kinahArr.sort((a, b) => a - b);
+  const pct = (p) => kinahArr.length ? kinahArr[Math.min(kinahArr.length - 1, Math.floor(kinahArr.length * p))] : 0;
+
+  return {
+    trials,
+    successRate: okCount / trials,         // 전념의룬: 목표 도달(파괴 안 됨) 비율
+    destroyedRate: destroyedCount / trials,
+    avgAttempts: sumAttempts / trials,
+    // 전체(파괴 포함) 평균 — 재료가 실제로 소모된 양
+    avg: { kinah: sumKinah / trials, enhanceStones: sumEStones / trials, breakthroughStones: sumBStones / trials },
+    // 성공 케이스 분포
+    success: okCount ? {
+      avgKinah: okKinah / okCount, avgEStones: okEStones / okCount, avgBStones: okBStones / okCount,
+      minKinah: kinahArr[0], medianKinah: pct(0.5), p95Kinah: pct(0.95), maxKinah: kinahArr[kinahArr.length - 1],
+    } : null,
+  };
+}
+
 module.exports = {
   HERO_ENHANCE,
   HERO_BREAKTHROUGH,
@@ -119,4 +246,8 @@ module.exports = {
   getHeroEnhanceStep,
   getHeroBreakthroughStep,
   getRuneEnhanceStep,
+  expectedHeroEnhance,
+  expectedHeroBreakthrough,
+  simulateOnce,
+  simulateMany,
 };

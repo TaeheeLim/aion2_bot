@@ -10,6 +10,9 @@ const { handleTtsInteraction }       = require('./commands/tts');
 const { handleDiceInteraction }      = require('./commands/dice');
 const { handleCalendarInteraction }  = require('./commands/calendar');
 const { handleInventoryInteraction } = require('./commands/inventory');
+const { handleEnhanceCalcInteraction } = require('./commands/enhanceCalc');
+const { handleRankingInteraction }   = require('./commands/ranking');
+const { handleRsvpInteraction, handleRsvpButton } = require('./commands/rsvp');
 const { startScheduleChecker }       = require('./services/scheduleChecker');
 
 // ──────────────────────────────────────────────────────────
@@ -51,6 +54,21 @@ client.once(Events.ClientReady, (readyClient) => {
 // 이벤트: 슬래시 명령어 처리
 // ──────────────────────────────────────────────────────────
 client.on(Events.InteractionCreate, async (interaction) => {
+  // 버튼 인터랙션 (일정 참가 RSVP 등)
+  if (interaction.isButton()) {
+    try {
+      await handleRsvpButton(interaction);
+    } catch (err) {
+      console.error('[버튼 오류]', err);
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: '❌ 처리 중 오류가 발생했습니다.', ephemeral: true });
+        }
+      } catch { /* 무시 */ }
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName } = interaction;
@@ -80,6 +98,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // 인벤토리 / 강화 / 돌파
     const handledByInventory = await handleInventoryInteraction(interaction);
     if (handledByInventory) return;
+
+    // 강화 계산기 / 시뮬
+    const handledByEnhanceCalc = await handleEnhanceCalcInteraction(interaction);
+    if (handledByEnhanceCalc) return;
+
+    // 강화 랭킹
+    const handledByRanking = await handleRankingInteraction(interaction);
+    if (handledByRanking) return;
+
+    // 일정 참여율
+    const handledByRsvp = await handleRsvpInteraction(interaction);
+    if (handledByRsvp) return;
 
     // 알 수 없는 명령어
     await interaction.reply({

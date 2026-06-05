@@ -14,6 +14,7 @@ const {
   isValidDate,
   isValidTime,
 } = require('../utils/dateUtils');
+const { buildRsvpButtons } = require('./rsvp');
 
 // ──────────────────────────────────────────────────────────
 // 슬래시 명령어 정의
@@ -190,11 +191,15 @@ async function handleScheduleRegister(interaction) {
         ...(role         ? [{ name: '📣 멘션 역할', value: `<@&${role.id}>`,                   inline: true }] : []),
         ...(voiceChannel ? [{ name: '🔊 TTS 음성채널', value: `<#${voiceChannel.id}>`, inline: true }] : []),
         ...(desc ? [{ name: '📝 설명', value: desc }] : []),
+        { name: '🙋 참가 현황', value: `${'✅ 참가 **0**  ·  ❌ 불참 **0**  ·  🤔 보류 **0**'}\n_아래 버튼으로 참가 여부를 알려주세요._` },
       )
       .setFooter({ text: `등록자: ${interaction.user.tag}` })
       .setTimestamp();
 
-    await interaction.editReply({ embeds: [embed] });
+    await interaction.editReply({
+      embeds: [embed],
+      components: [buildRsvpButtons(result.lastInsertRowid)],
+    });
   } catch (err) {
     console.error('[일정등록] DB 오류:', err);
     await interaction.editReply({ content: '❌ 일정 등록 중 오류가 발생했습니다.' });

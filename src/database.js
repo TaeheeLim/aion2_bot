@@ -105,11 +105,41 @@ function initDatabase() {
     )
   `);
 
+  // ──────────────────────────────────────────
+  // schedule_rsvp 테이블 (일정 참가 신청)
+  // status: '참가' | '불참' | '보류'
+  // (schedule_id, user_id) 복합 PK → 사용자당 1표, 재클릭 시 upsert
+  // ──────────────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schedule_rsvp (
+      schedule_id INTEGER NOT NULL,
+      guild_id    TEXT    NOT NULL,
+      user_id     TEXT    NOT NULL,
+      status      TEXT    NOT NULL,
+      updated_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+      PRIMARY KEY (schedule_id, user_id)
+    )
+  `);
+
   // 기존 DB 호환 마이그레이션
   const migrations = [
     `ALTER TABLE schedules ADD COLUMN voice_channel_id TEXT`,
     `ALTER TABLE schedules ADD COLUMN notify_3    INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE schedules ADD COLUMN notified_3  INTEGER NOT NULL DEFAULT 0`,
+
+    // 성능 인덱스 — 조회 패턴별 (행 증가 시 풀스캔 방지)
+    // /장비목록: guild_id + user_id 필터
+    `CREATE INDEX IF NOT EXISTS idx_inventory_guild_user
+       ON inventory (guild_id, user_id)`,
+    // cron 알림 / 달력 / 일정목록: scheduled_at 범위 스캔
+    `CREATE INDEX IF NOT EXISTS idx_schedules_scheduled_at
+       ON schedules (scheduled_at)`,
+    // /빌드목록 /빌드검색: guild_id + 최신순 정렬
+    `CREATE INDEX IF NOT EXISTS idx_builds_guild_created
+       ON builds (guild_id, created_at)`,
+    // /참여율: 사용자별 참여 집계
+    `CREATE INDEX IF NOT EXISTS idx_rsvp_guild_user
+       ON schedule_rsvp (guild_id, user_id)`,
   ];
   for (const sql of migrations) {
     try { db.exec(sql); } catch { /* 이미 존재하면 무시 */ }

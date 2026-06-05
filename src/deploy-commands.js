@@ -18,6 +18,9 @@ const { ttsCommands }       = require('./commands/tts');
 const { diceCommands }      = require('./commands/dice');
 const { calendarCommands }  = require('./commands/calendar');
 const { inventoryCommands } = require('./commands/inventory');
+const { enhanceCalcCommands } = require('./commands/enhanceCalc');
+const { rankingCommands }   = require('./commands/ranking');
+const { rsvpCommands }      = require('./commands/rsvp');
 
 const { DISCORD_TOKEN, CLIENT_ID, GUILD_ID } = process.env;
 
@@ -35,6 +38,9 @@ const commands = [
   ...diceCommands,
   ...calendarCommands,
   ...inventoryCommands,
+  ...enhanceCalcCommands,
+  ...rankingCommands,
+  ...rsvpCommands,
 ].map(cmd => cmd.toJSON());
 
 const rest = new REST().setToken(DISCORD_TOKEN);
