@@ -7,3 +7,4 @@ node_modules/
 .claude/
 insert_test.js
 bot.log
+CLAUDE.md
