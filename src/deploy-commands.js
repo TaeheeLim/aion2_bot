@@ -12,7 +12,7 @@
 require('dotenv').config();
 
 const { REST, Routes } = require('discord.js');
-const { buildCommands }     = require('./commands/build');
+// const { buildCommands }     = require('./commands/build'); // 빌드 기능 비활성화
 const { scheduleCommands }  = require('./commands/schedule');
 const { ttsCommands }       = require('./commands/tts');
 const { diceCommands }      = require('./commands/dice');
@@ -21,6 +21,7 @@ const { inventoryCommands } = require('./commands/inventory');
 const { enhanceCalcCommands } = require('./commands/enhanceCalc');
 const { rankingCommands }   = require('./commands/ranking');
 const { rsvpCommands }      = require('./commands/rsvp');
+const { homeworkCommands }  = require('./commands/homework');
 
 const { DISCORD_TOKEN, CLIENT_ID, GUILD_ID } = process.env;
 
@@ -32,7 +33,7 @@ if (!DISCORD_TOKEN || !CLIENT_ID) {
 
 // 모든 명령어 JSON 변환
 const commands = [
-  ...buildCommands,
+  // ...buildCommands, // 빌드 기능 비활성화
   ...scheduleCommands,
   ...ttsCommands,
   ...diceCommands,
@@ -41,6 +42,7 @@ const commands = [
   ...enhanceCalcCommands,
   ...rankingCommands,
   ...rsvpCommands,
+  ...homeworkCommands,
 ].map(cmd => cmd.toJSON());
 
 const rest = new REST().setToken(DISCORD_TOKEN);

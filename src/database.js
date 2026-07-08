@@ -140,6 +140,38 @@ function initDatabase() {
     // /참여율: 사용자별 참여 집계
     `CREATE INDEX IF NOT EXISTS idx_rsvp_guild_user
        ON schedule_rsvp (guild_id, user_id)`,
+
+    // ──────────────────────────────────────────
+    // 주간 숙제 체크리스트
+    // homework_tasks    : 서버별 숙제 항목 정의 (관리자 편집)
+    // homework_progress : 사용자 × 주차 × 항목 진행도
+    //   week_key = 주차 식별자 'yyyy-MM-dd' (직전 수요일 10:00 KST 경계)
+    //   매 주차마다 새 행이 생기므로 별도 초기화 cron 불필요
+    // ──────────────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS homework_tasks (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      guild_id       TEXT    NOT NULL,
+      name           TEXT    NOT NULL,
+      required_count INTEGER NOT NULL DEFAULT 1,
+      sort_order     INTEGER NOT NULL DEFAULT 0,
+      active         INTEGER NOT NULL DEFAULT 1,
+      created_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS homework_progress (
+      guild_id   TEXT    NOT NULL,
+      user_id    TEXT    NOT NULL,
+      week_key   TEXT    NOT NULL,
+      task_id    INTEGER NOT NULL,
+      count      INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+      PRIMARY KEY (guild_id, user_id, week_key, task_id)
+    )`,
+    // /숙제설정 목록·/숙제: 활성 항목을 정렬 순으로 조회
+    `CREATE INDEX IF NOT EXISTS idx_homework_tasks_guild
+       ON homework_tasks (guild_id, active, sort_order)`,
+    // /숙제현황: 주차별 서버 멤버 집계
+    `CREATE INDEX IF NOT EXISTS idx_homework_progress_lookup
+       ON homework_progress (guild_id, week_key, user_id)`,
   ];
   for (const sql of migrations) {
     try { db.exec(sql); } catch { /* 이미 존재하면 무시 */ }

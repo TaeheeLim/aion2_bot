@@ -4,7 +4,7 @@ require('dotenv').config();
 
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { initDatabase } = require('./database');
-const { handleBuildInteraction }     = require('./commands/build');
+// const { handleBuildInteraction }     = require('./commands/build'); // 빌드 기능 비활성화
 const { handleScheduleInteraction }  = require('./commands/schedule');
 const { handleTtsInteraction }       = require('./commands/tts');
 const { handleDiceInteraction }      = require('./commands/dice');
@@ -13,6 +13,7 @@ const { handleInventoryInteraction } = require('./commands/inventory');
 const { handleEnhanceCalcInteraction } = require('./commands/enhanceCalc');
 const { handleRankingInteraction }   = require('./commands/ranking');
 const { handleRsvpInteraction, handleRsvpButton } = require('./commands/rsvp');
+const { handleHomeworkInteraction, handleHomeworkButton } = require('./commands/homework');
 const { startScheduleChecker }       = require('./services/scheduleChecker');
 
 // ──────────────────────────────────────────────────────────
@@ -54,10 +55,11 @@ client.once(Events.ClientReady, (readyClient) => {
 // 이벤트: 슬래시 명령어 처리
 // ──────────────────────────────────────────────────────────
 client.on(Events.InteractionCreate, async (interaction) => {
-  // 버튼 인터랙션 (일정 참가 RSVP 등)
+  // 버튼 인터랙션 (일정 참가 RSVP, 숙제 체크 등)
   if (interaction.isButton()) {
     try {
-      await handleRsvpButton(interaction);
+      if (await handleRsvpButton(interaction)) return;
+      if (await handleHomeworkButton(interaction)) return;
     } catch (err) {
       console.error('[버튼 오류]', err);
       try {
@@ -75,9 +77,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
   console.log(`[명령어] /${commandName} — 사용자: ${interaction.user.tag} (${interaction.guildId})`);
 
   try {
-    // 빌드 관련 명령어
-    const handledByBuild = await handleBuildInteraction(interaction);
-    if (handledByBuild) return;
+    // 빌드 관련 명령어 (비활성화)
+    // const handledByBuild = await handleBuildInteraction(interaction);
+    // if (handledByBuild) return;
 
     // 일정 관련 명령어
     const handledBySchedule = await handleScheduleInteraction(interaction);
@@ -110,6 +112,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // 일정 참여율
     const handledByRsvp = await handleRsvpInteraction(interaction);
     if (handledByRsvp) return;
+
+    // 주간 숙제 체크리스트
+    const handledByHomework = await handleHomeworkInteraction(interaction);
+    if (handledByHomework) return;
 
     // 알 수 없는 명령어
     await interaction.reply({

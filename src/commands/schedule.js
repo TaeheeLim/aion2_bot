@@ -283,7 +283,7 @@ async function handleScheduleDelete(interaction) {
   const guildId    = interaction.guildId;
   const scheduleId = interaction.options.getInteger('일정id');
   const userId     = interaction.user.id;
-  const isAdmin    = interaction.member?.permissions?.has(PermissionFlagsBits.Administrator) ?? false;
+  const isAdmin    = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false;
 
   try {
     const row = db.prepare(`

@@ -202,7 +202,7 @@ async function handleBuildDelete(interaction) {
   const guildId = interaction.guildId;
   const buildId = interaction.options.getInteger('빌드id');
   const userId  = interaction.user.id;
-  const isAdmin = interaction.member?.permissions?.has(PermissionFlagsBits.Administrator) ?? false;
+  const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false;
 
   try {
     const row = db.prepare(`
